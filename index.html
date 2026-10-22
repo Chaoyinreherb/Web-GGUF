@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web-GGUF Studio | WebGPU &amp; Wasm ローカル推論</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+
+<body>
+
+  <div class="app-container">
+
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-logo">G</div>
+        <div>
+          <div class="brand-title">
+            Web-GGUF Studio
+            <span class="brand-badge">WebGPU &amp; Wasm</span>
+          </div>
+          <div class="brand-subtitle">ブラウザローカル完全完結 GGUF チャット環境</div>
+        </div>
+      </div>
+
+      <!-- Status Badges & Action Buttons -->
+      <div class="header-actions">
+        <!-- WebGPU Status Badge -->
+        <div id="gpu-status-badge" class="status-badge" title="WebGPUステータス">
+          <span class="status-dot dot-amber"></span>
+          <span>WebGPU 確認中...</span>
+        </div>
+
+        <!-- Wasm Status Badge -->
+        <div id="wasm-status-badge" class="status-badge" title="WebAssemblyステータス">
+          <span class="status-dot dot-amber"></span>
+          <span>Wasm 確認中...</span>
+        </div>
+
+        <!-- Model Status Badge -->
+        <div id="model-status-badge" class="status-badge" title="モデル状態">
+          <span class="status-dot dot-amber"></span>
+          <span>未ロード</span>
+        </div>
+
+        <!-- Diagnostics Modal Button -->
+        <button id="open-diagnostics-btn" class="btn-header">環境診断</button>
+
+        <!-- Technical Challenges Modal Button -->
+        <button id="open-challenges-btn" class="btn-header btn-header-accent">技術的課題</button>
+      </div>
+    </header>
+
+    <!-- Main View (Sidebar + Chat) -->
+    <div class="main-view">
+
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <!-- Sidebar Tabs -->
+        <div class="sidebar-tabs">
+          <button id="tab-btn-model" class="tab-btn active">モデル管理</button>
+          <button id="tab-btn-params" class="tab-btn">生成パラメータ</button>
+        </div>
+
+        <!-- Sidebar Content: Model Management -->
+        <div id="tab-content-model" class="sidebar-content">
+
+          <!-- Drop Zone Area -->
+          <div>
+            <div class="section-title">ローカル GGUF ファイル</div>
+            <div id="drop-zone" class="drop-zone">
+              <input type="file" id="local-file-input" accept=".gguf" multiple class="hidden" />
+              <svg class="drop-zone-icon" width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <div class="drop-zone-text">GGUFファイルをドラッグ&ドロップ</div>
+              <div class="drop-zone-subtext">またはクリックして選択 (分割ファイル対応)</div>
+            </div>
+            <div id="selected-files-list" class="selected-files-box hidden" style="margin-top: 8px;"></div>
+            <button id="load-local-btn" class="btn-primary hidden" style="margin-top: 8px;">
+              選択したファイルをロード
+            </button>
+          </div>
+
+          <!-- Loading Progress Box -->
+          <div id="loading-progress-container" class="progress-box hidden">
+            <div class="progress-box-header">
+              <span id="loading-status-text" style="color: var(--primary-light); font-weight: 600;">読み込み中...</span>
+              <span id="loading-percent" style="font-family: var(--font-mono); color: var(--text-secondary);">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="loading-progress-bar" class="progress-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Active Model Information -->
+          <div id="active-model-card" class="active-model-card hidden">
+            <div class="active-model-title">
+              <span>モデルロード完了</span>
+              <button id="unload-model-btn" class="unload-link">解放 (Unload)</button>
+            </div>
+            <div id="active-model-name" class="active-model-name"></div>
+            <div id="active-model-info" class="active-model-info"></div>
+          </div>
+
+          <!-- Presets -->
+          <div>
+            <div class="section-title">推奨プリセットモデル (ワンクリック)</div>
+            <div id="preset-models-list" class="preset-list">
+              <!-- Rendered via UIController -->
+            </div>
+          </div>
+
+          <!-- Custom HF Input -->
+          <div style="border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <div class="section-title">Hugging Face リポジトリ指定</div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <input type="text" id="hf-repo-input" placeholder="例: Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+                class="input-text" />
+              <input type="text" id="hf-file-input" placeholder="例: qwen2.5-0.5b-instruct-q4_k_m.gguf"
+                class="input-text" />
+              <button id="load-hf-btn" class="btn-secondary">HF からダウンロード &amp; ロード</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Sidebar Content: Generation Parameters -->
+        <div id="tab-content-params" class="sidebar-content hidden">
+
+          <div
+            style="background-color: var(--bg-card); padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+            <div class="section-title" style="margin-bottom: 10px;">ハードウェア最適化</div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">WebGPU オフロード層数:</span>
+                <span id="param-gpu-val" class="param-val">99 (全層)</span>
+              </div>
+              <input type="range" id="param-gpu-layers" min="0" max="99" value="99" />
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">※0に設定するとCPU (Wasm SIMD)
+                のみで実行されます。</div>
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">CPU スレッド数:</span>
+                <span id="param-threads-val" class="param-val">4</span>
+              </div>
+              <input type="range" id="param-threads" min="1" max="16" value="4" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">コンテキスト長 (n_ctx):</span>
+                <span id="param-nctx-val" class="param-val">2048</span>
+              </div>
+              <select id="param-nctx" class="input-text">
+                <option value="512">512 トークン (省メモリ)</option>
+                <option value="1024">1024 トークン</option>
+                <option value="2048" selected>2048 トークン (推奨)</option>
+                <option value="4096">4096 トークン (大容量)</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <div class="section-title">サンプリング設定</div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">Temperature:</span>
+                <span id="param-temp-val" class="param-val">0.7</span>
+              </div>
+              <input type="range" id="param-temp" min="0" max="2" step="0.05" value="0.7" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">Top-P:</span>
+                <span id="param-topp-val" class="param-val">0.9</span>
+              </div>
+              <input type="range" id="param-topp" min="0.1" max="1.0" step="0.05" value="0.9" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <span class="param-label">Max Tokens (最大長):</span>
+                <span id="param-maxtokens-val" class="param-val">512</span>
+              </div>
+              <input type="range" id="param-maxtokens" min="32" max="2048" step="32" value="512" />
+            </div>
+          </div>
+
+          <div>
+            <div class="section-title">システムプロンプト</div>
+            <textarea id="param-system-prompt" rows="3" class="input-text"
+              placeholder="例 : あなたは親切で有能なAIアシスタントです。簡潔かつ的確に日本語で回答してください。"
+              style="font-family: var(--font-sans); resize: vertical;"></textarea>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- Right Chat Area -->
+      <main class="chat-area">
+
+        <!-- Performance Bar -->
+        <div id="perf-stats" class="perf-bar hidden">
+          <div class="perf-items">
+            <div>速度: <span id="stat-tps" class="perf-stat-val">--</span></div>
+            <div>初回トークン: <span id="stat-ttft">--</span></div>
+            <div>トークン数: <span id="stat-tokens">--</span></div>
+            <div>所要時間: <span id="stat-elapsed">--</span></div>
+          </div>
+          <div class="perf-actions">
+            <button id="undo-last-btn" class="btn-undo-chat" title="直前の発言と回答を取り消す">
+              <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l4-4m-4 4l4 4" />
+              </svg>
+              <span>直前を取り消し</span>
+            </button>
+            <button id="clear-chat-btn" class="btn-clear-chat" title="すべてのチャット履歴を消去">チャットクリア</button>
+          </div>
+        </div>
+
+        <!-- Chat Messages -->
+        <div id="chat-messages" class="messages-container">
+          <!-- Empty State -->
+          <div id="chat-empty-state" class="empty-state">
+            <div class="empty-state-icon">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <div class="empty-state-title">ブラウザローカルで安全にLLMを実行</div>
+            <div class="empty-state-desc">
+              外部サーバーへの通信は一切発生しません。ローカルの WebGPU または WebAssembly (SIMD) を使用して完全オフラインで動作します。
+            </div>
+            <div class="empty-state-grid">
+              <div class="empty-state-card">
+                <div class="empty-state-card-title">1. モデルを読み込む</div>
+                <div class="empty-state-card-desc">左側のパネルからプリセットを選択するか、お手持ちの .gguf ファイルをドロップしてください。</div>
+              </div>
+              <div class="empty-state-card">
+                <div class="empty-state-card-title">2. チャットを開始</div>
+                <div class="empty-state-card-desc">モデル読み込み完了後、メッセージを入力して Enter を押すとローカル推論が開始されます。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Bar -->
+        <div class="chat-input-bar">
+          <div class="chat-input-box">
+            <textarea id="prompt-input" rows="1" disabled placeholder="左側のパネルからGGUFモデルを読み込んでください"
+              class="prompt-textarea"></textarea>
+
+            <button id="clear-input-btn" class="btn-clear-input hidden" title="入力を取り消す (Esc)">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <button id="send-btn" disabled class="btn-send" title="送信 (Enter)">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </button>
+
+            <button id="stop-btn" class="btn-stop hidden" title="生成を中断">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          </div>
+          <div class="input-hint">
+            <span>Shift + Enter で改行。メッセージのコピーや取り消しも各項目から行えます。</span>
+          </div>
+        </div>
+
+      </main>
+
+    </div>
+
+  </div>
+
+  <!-- Hardware Diagnostics Modal -->
+  <div id="diagnostics-modal" class="modal-overlay hidden">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="modal-title">ハードウェア &amp; ランタイム環境診断</div>
+        <button id="close-diagnostics-btn" class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="font-family: var(--font-mono); font-size: 11px;">
+        <div
+          style="background-color: var(--bg-card); padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="color: var(--primary-light); font-weight: 700; margin-bottom: 6px;">【WebGPU サポート状況】</div>
+          <div id="diag-gpu-status" style="margin-bottom: 4px;"></div>
+          <div id="diag-gpu-adapter" style="color: var(--text-secondary); margin-bottom: 6px;"></div>
+          <div id="diag-gpu-limits" style="color: var(--text-muted); display: flex; flex-direction: column; gap: 2px;">
+          </div>
+        </div>
+        <div
+          style="background-color: var(--bg-card); padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <div style="color: var(--accent-green-text); font-weight: 700; margin-bottom: 6px;">【WebAssembly 実行環境】</div>
+          <div id="diag-wasm-threads" style="margin-bottom: 4px;"></div>
+          <div id="diag-wasm-simd" style="margin-bottom: 4px;"></div>
+          <div id="diag-wasm-isolation" style="color: var(--text-secondary); margin-bottom: 4px;"></div>
+          <div id="diag-wasm-cores" style="color: var(--text-muted);"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="close-diagnostics-btn-2" class="btn-secondary" style="width: auto;">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Technical Challenges Modal -->
+  <div id="challenges-modal" class="modal-overlay hidden">
+    <div class="modal-container" style="max-width: 680px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">ブラウザ・ローカルでGGUFを動かす「実装の難所」</div>
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">WebGPU / WebAssembly
+            でのローカルLLM実行における技術的課題と解決策</div>
+        </div>
+        <button id="close-challenges-btn" class="btn-close-modal">&times;</button>
+      </div>
+      <div id="challenges-container" class="modal-body">
+        <!-- Rendered by JS -->
+      </div>
+      <div class="modal-footer">
+        <button id="close-challenges-btn-2" class="btn-primary" style="width: auto;">理解した</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>

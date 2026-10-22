@@ -1,0 +1,55 @@
+/**
+ * Predefined lightweight GGUF models that run well in browser environments
+ */
+export const PRESET_MODELS = [
+  {
+    id: 'smollm2-135m',
+    name: 'SmolLM2 135M Instruct',
+    size: '~95 MB',
+    desc: '超軽量・超高速。ブラウザ動作テストや低スペック端末に最適。',
+    repo: 'bartowski/SmolLM2-135M-Instruct-GGUF',
+    file: 'SmolLM2-135M-Instruct-Q4_K_M.gguf',
+    quant: 'Q4_K_M',
+    tag: 'テスト推奨',
+  },
+  {
+    id: 'smollm2-360m',
+    name: 'SmolLM2 360M Instruct',
+    size: '~230 MB',
+    desc: '軽量ながら文章生成力に優れたバランスの良いモデル。',
+    repo: 'bartowski/SmolLM2-360M-Instruct-GGUF',
+    file: 'SmolLM2-360M-Instruct-Q4_K_M.gguf',
+    quant: 'Q4_K_M',
+    tag: '高速',
+  },
+  {
+    id: 'qwen2.5-0.5b',
+    name: 'Qwen2.5 0.5B Instruct',
+    size: '~398 MB',
+    desc: '日本語能力・論理思考力に優れた超優秀な小型モデル。',
+    repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF',
+    file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    quant: 'Q4_K_M',
+    tag: '日本語推奨',
+  },
+  {
+    id: 'tinyllama-1.1b',
+    name: 'TinyLlama 1.1B Chat',
+    size: '~670 MB',
+    desc: '定番のオープンソース小型LLM。安定した対話性能。',
+    repo: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF',
+    file: 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf',
+    quant: 'Q4_K_M',
+    tag: '標準',
+  },
+  {
+    id: 'llama-3.2-1b',
+    name: 'Llama 3.2 1B Instruct',
+    size: '~800 MB',
+    desc: 'Meta最新の小型モデル。高度なコンテキスト理解が可能。',
+    repo: 'bartowski/Llama-3.2-1B-Instruct-GGUF',
+    file: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+    quant: 'Q4_K_M',
+    tag: '高精度',
+  },
+];
