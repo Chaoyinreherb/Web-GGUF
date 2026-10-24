@@ -314,43 +314,137 @@ function setupSlider(sliderId, labelId, transform = (v) => v) {
   }
 }
 
+const LOAD_STAGE_LABELS = {
+  preparing: 'モデルを準備中...',
+  wasm: 'WASM ランタイムを準備中...',
+  download: 'モデルを取得中...',
+  local: 'ローカルファイルを読み込み中...',
+  load: 'モデルをメモリに展開中...',
+  ready: 'モデルの準備が完了しました',
+};
+
+// Progress is determinate while bytes arrive, otherwise a sliding bar with elapsed time is shown
+const progressUI = {
+  stage: '',
+  indeterminate: false,
+  timerId: null,
+  startedAt: 0,
+
+  elements() {
+    return {
+      container: document.getElementById('loading-progress-container'),
+      bar: document.getElementById('loading-progress-bar'),
+      percent: document.getElementById('loading-percent'),
+      text: document.getElementById('loading-status-text'),
+    };
+  },
+
+  reset() {
+    const { container, bar, percent, text } = this.elements();
+    this.stopTimer();
+    this.stage = 'preparing';
+    this.indeterminate = false;
+    container.classList.remove('hidden');
+    bar.classList.remove('is-indeterminate');
+    bar.style.width = '0%';
+    percent.textContent = '';
+    text.textContent = LOAD_STAGE_LABELS.preparing;
+  },
+
+  setStage(stage) {
+    if (!stage || this.stage === stage) return;
+    const { bar, percent, text } = this.elements();
+    this.stage = stage;
+    text.textContent = LOAD_STAGE_LABELS[stage] || '';
+
+    if (stage === 'ready') {
+      this.stopTimer();
+      this.indeterminate = false;
+      bar.classList.remove('is-indeterminate');
+      bar.style.width = '100%';
+      percent.textContent = '';
+      return;
+    }
+
+    this.indeterminate = true;
+    bar.classList.add('is-indeterminate');
+    bar.style.width = '';
+    percent.textContent = '';
+    this.startTimer();
+  },
+
+  setProgress({ loaded, total, percent }) {
+    // Only byte-based stages drive the bar; later stages use the elapsed timer
+    if (this.stage !== 'download' && this.stage !== 'wasm') return;
+    const { bar, percent: percentEl } = this.elements();
+
+    if (Number.isFinite(percent)) {
+      if (this.indeterminate) {
+        this.stopTimer();
+        this.indeterminate = false;
+        bar.classList.remove('is-indeterminate');
+      }
+      bar.style.width = `${percent}%`;
+    } else {
+      this.stopTimer();
+    }
+
+    if (loaded) {
+      percentEl.textContent = total > 0
+        ? `${formatBytes(loaded)} / ${formatBytes(total)}`
+        : formatBytes(loaded);
+    } else {
+      percentEl.textContent = '';
+    }
+  },
+
+  startTimer() {
+    this.stopTimer();
+    this.startedAt = performance.now();
+    this.timerId = setInterval(() => {
+      if (!this.indeterminate) return;
+      const seconds = (performance.now() - this.startedAt) / 1000;
+      this.elements().percent.textContent = `${seconds.toFixed(1)}s`;
+    }, 100);
+  },
+
+  stopTimer() {
+    if (this.timerId) {
+      clearInterval(this.timerId);
+      this.timerId = null;
+    }
+  },
+
+  hide() {
+    this.stopTimer();
+    this.elements().container.classList.add('hidden');
+  },
+};
+
 function getLoadOptions() {
   const nGpuLayers = parseInt(document.getElementById('param-gpu-layers').value, 10);
   const nThreads = parseInt(document.getElementById('param-threads').value, 10);
   const nCtx = parseInt(document.getElementById('param-nctx').value, 10);
 
-  const progressContainer = document.getElementById('loading-progress-container');
-  const progressBar = document.getElementById('loading-progress-bar');
-  const progressPercent = document.getElementById('loading-percent');
-  const progressText = document.getElementById('loading-status-text');
-
-  progressContainer.classList.remove('hidden');
-  progressBar.style.width = '0%';
-  progressPercent.textContent = '0%';
-  progressText.textContent = 'モデルを準備中...';
+  progressUI.reset();
 
   return {
     nGpuLayers,
     nThreads,
     nCtx,
-    onProgress: ({ loaded, total, percent }) => {
-      progressBar.style.width = `${percent}%`;
-      progressPercent.textContent = `${percent}% (${formatBytes(loaded)} / ${formatBytes(total)})`;
-      progressText.textContent = 'ダウンロード & キャッシュ中...';
-    },
+    onStage: (stage) => progressUI.setStage(stage),
+    onProgress: (progress) => progressUI.setProgress(progress),
   };
 }
 
 async function loadModel(loaderFn) {
-  const progressContainer = document.getElementById('loading-progress-container');
-  const progressText = document.getElementById('loading-status-text');
   const activeModelCard = document.getElementById('active-model-card');
   const activeModelName = document.getElementById('active-model-name');
   const activeModelInfo = document.getElementById('active-model-info');
 
   try {
     const res = await loaderFn();
-    progressText.textContent = 'コンテキストを初期化中...';
+    progressUI.setStage('ready');
 
     state.ui.setEngineState({
       loaded: true,
@@ -370,12 +464,12 @@ async function loadModel(loaderFn) {
     `;
 
     setTimeout(() => {
-      progressContainer.classList.add('hidden');
+      progressUI.hide();
     }, 1000);
   } catch (err) {
     console.error('Failed to load model:', err);
+    progressUI.hide();
     alert(`モデルの読み込みに失敗しました:\n${err.message || err}`);
-    progressContainer.classList.add('hidden');
     state.ui.setEngineState({ loaded: false });
   }
 }

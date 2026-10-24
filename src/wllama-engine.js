@@ -6,6 +6,8 @@ import { Wllama } from '@wllama/wllama';
 export class WllamaEngine {
   constructor(options = {}) {
     this.wasmPath = options.wasmPath || '/wllama.wasm';
+    this.wasmObjectUrl = null;
+    this.wasmPrefetchFailed = false;
     this.wllama = null;
     this.isLoaded = false;
     this.currentModelName = '';
@@ -15,13 +17,58 @@ export class WllamaEngine {
   }
 
   /**
+   * Downloads the wasm binary in chunks so the UI can show real progress
+   */
+  async prefetchWasm(onProgress = null) {
+    if (this.wasmObjectUrl) return this.wasmObjectUrl;
+    if (this.wasmPrefetchFailed) return this.wasmPath;
+
+    try {
+      const res = await fetch(this.wasmPath);
+      if (!res.ok || !res.body) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const total = parseInt(res.headers.get('content-length') || '0', 10);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress?.({
+          loaded,
+          total,
+          // keep at 99 until the stream is fully read
+          percent: total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : null,
+        });
+      }
+
+      onProgress?.({ loaded, total: total || loaded, percent: 100 });
+      this.wasmObjectUrl = URL.createObjectURL(new Blob(chunks, { type: 'application/wasm' }));
+      return this.wasmObjectUrl;
+    } catch (e) {
+      console.warn('Failed to prefetch wllama.wasm, falling back to direct URL:', e);
+      this.wasmPrefetchFailed = true;
+      return this.wasmPath;
+    }
+  }
+
+  /**
    * Initializes the wllama instance
    */
-  async init() {
+  async init(onWasmProgress = null) {
     if (this.wllama) return;
 
+    if (!this.wasmObjectUrl && !this.wasmPrefetchFailed) {
+      await this.prefetchWasm(onWasmProgress);
+    }
+
     const configPaths = {
-      default: this.wasmPath,
+      default: this.wasmObjectUrl || this.wasmPath,
     };
 
     this.wllama = new Wllama(configPaths, {
@@ -53,17 +100,19 @@ export class WllamaEngine {
    * @param {Object} options
    */
   async loadLocalModel(files, options = {}) {
-    await this.init();
-    if (this.isLoaded) {
-      await this.unload();
-    }
-
     const {
       nGpuLayers = 0,
       nThreads = Math.min(navigator.hardwareConcurrency || 4, 8),
       nCtx = 2048,
       onProgress = null,
+      onStage = null,
     } = options;
+
+    if (!this.wllama) onStage?.('wasm');
+    await this.init(onProgress);
+    if (this.isLoaded) {
+      await this.unload();
+    }
 
     const fileList = Array.isArray(files) ? files : [files];
     this.currentModelName = fileList.map(f => f.name || 'local.gguf').join(', ');
@@ -76,7 +125,7 @@ export class WllamaEngine {
       cont_batching: true,
     };
 
-    // Load model from blobs
+    onStage?.('local');
     await this.wllama.loadModel(fileList, loadParams);
     this.isLoaded = true;
 
@@ -99,20 +148,23 @@ export class WllamaEngine {
    * Loads a model from Hugging Face repository
    */
   async loadHFModel(repo, file, options = {}) {
-    await this.init();
-    if (this.isLoaded) {
-      await this.unload();
-    }
-
     const {
       nGpuLayers = 0,
       nThreads = Math.min(navigator.hardwareConcurrency || 4, 8),
       nCtx = 2048,
       onProgress = null,
+      onStage = null,
     } = options;
+
+    if (!this.wllama) onStage?.('wasm');
+    await this.init(onProgress);
+    if (this.isLoaded) {
+      await this.unload();
+    }
 
     this.currentModelName = `${repo}/${file}`;
 
+    let downloadDone = false;
     const loadParams = {
       n_ctx: nCtx,
       n_threads: nThreads,
@@ -120,12 +172,17 @@ export class WllamaEngine {
       warmup: true,
       cont_batching: true,
       progressCallback: ({ loaded, total }) => {
-        if (onProgress && total > 0) {
-          onProgress({ loaded, total, percent: Math.round((loaded / total) * 100) });
+        if (!onProgress || total <= 0) return;
+        const percent = Math.round((loaded / total) * 100);
+        onProgress({ loaded, total, percent });
+        if (percent >= 100 && !downloadDone) {
+          downloadDone = true;
+          onStage?.('load');
         }
       },
     };
 
+    onStage?.('download');
     await this.wllama.loadModelFromHF({ repo, file }, loadParams);
     this.isLoaded = true;
 
@@ -147,20 +204,23 @@ export class WllamaEngine {
    * Loads a model from a direct URL
    */
   async loadModelFromUrl(url, options = {}) {
-    await this.init();
-    if (this.isLoaded) {
-      await this.unload();
-    }
-
     const {
       nGpuLayers = 0,
       nThreads = Math.min(navigator.hardwareConcurrency || 4, 8),
       nCtx = 2048,
       onProgress = null,
+      onStage = null,
     } = options;
+
+    if (!this.wllama) onStage?.('wasm');
+    await this.init(onProgress);
+    if (this.isLoaded) {
+      await this.unload();
+    }
 
     this.currentModelName = url.split('/').pop() || 'remote.gguf';
 
+    let downloadDone = false;
     const loadParams = {
       n_ctx: nCtx,
       n_threads: nThreads,
@@ -168,12 +228,17 @@ export class WllamaEngine {
       warmup: true,
       cont_batching: true,
       progressCallback: ({ loaded, total }) => {
-        if (onProgress && total > 0) {
-          onProgress({ loaded, total, percent: Math.round((loaded / total) * 100) });
+        if (!onProgress || total <= 0) return;
+        const percent = Math.round((loaded / total) * 100);
+        onProgress({ loaded, total, percent });
+        if (percent >= 100 && !downloadDone) {
+          downloadDone = true;
+          onStage?.('load');
         }
       },
     };
 
+    onStage?.('download');
     await this.wllama.loadModelFromUrl(url, loadParams);
     this.isLoaded = true;
 
