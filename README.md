@@ -3,6 +3,8 @@
 ブラウザ・ローカル環境で GGUF 形式の LLM モデルを読み込み、完全オフラインでチャット推論ができる Web アプリケーションです。
 WebGPU による GPU 並列演算および WebAssembly (SIMD + Multi-threading) を活用しています。
 
+👉 github pagesで公開しています: [https://chaoyinreherb.github.io/Web-GGUF/](https://chaoyinreherb.github.io/Web-GGUF/)
+
 ---
 
 ## 🚀 クイックスタート
