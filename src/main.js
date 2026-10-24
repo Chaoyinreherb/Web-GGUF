@@ -6,7 +6,7 @@ import { TECHNICAL_CHALLENGES } from './challenges-content.js';
 
 // Application State
 const state = {
-  engine: new WllamaEngine({ wasmPath: '/wllama.wasm' }),
+  engine: new WllamaEngine({ wasmPath: `${import.meta.env.BASE_URL}wllama.wasm` }),
   ui: null,
   chatHistory: [],
   selectedLocalFiles: [],
